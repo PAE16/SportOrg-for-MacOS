@@ -1,0 +1,162 @@
+[project]
+name = "sportorg"
+version = "1.8.0b2"
+description = "SportOrg, python, sportident, orienteering"
+authors = [{ name = "Danil Akhtarov", email = "daxartio@gmail.com" }]
+requires-python = ">=3.8.1,<=3.14"
+dependencies = [
+  "aiohttp>=3.9.0,<4",
+  "boltons>=20,<21",
+  "chardet>=5.2.0,<6",
+  "cryptography>=46.0.6",
+  "docxtpl>=0,<1",
+  "jinja2>=3,<4",
+  "importlib_resources>=5; python_version < '3.9'",
+  "orjson>=3.9.5,<4",
+  "playsound3>=3,<4",
+  "polib>=1,<2",
+  "psutil>=7,<8",
+  "python-dateutil>=2,<3",
+  "pywinusb>=0,<1; sys_platform == 'win32'",
+  "requests>=2,<3",
+  "sportident>=1,<2",
+  "hidapi>=0.14,<1",
+]
+
+[project.optional-dependencies]
+gui = [
+  "PySide6>=6,<7",
+]
+win = [
+  "pywin32>=228",
+  "pyImpinj~=1.2; python_version == '3.8'",
+]
+
+[dependency-groups]
+dev = [
+  "cx_Freeze>=6.15.16,<7; python_version == '3.8'",
+  "cx_Freeze>=8; python_version >= '3.14'",
+  "maturin>=1.9.4,<2",
+  "mypy~=1.4; python_version == '3.8'",
+  "mypy>=1.4; python_version >= '3.14'",
+  "poethepoet>=0.22,<0.31",
+  "pytest>=7.4,<9.0",
+  "pytest-benchmark>=4,<5",
+  "pytest-cov",
+  "pytest-deadfixtures",
+  "pytest-mock",
+  "ruff>=0.12,<0.13",
+  "toml",
+  "types-polib>=1,<2",
+  "types-python-dateutil>=2.8.19.14,<3",
+  "types-requests>=2.31.0.2,<3",
+  "types-six>=1.16.21.9,<2",
+  "types-pywin32>=228; sys_platform == 'win32'",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.mypy]
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[[tool.mypy.overrides]]
+module = [".venv.*"]
+ignore_errors = true
+
+[tool.coverage.run]
+omit = ["benches/*", "tests/*", "**/__main__.py", "**/.venv/*", "**/site-packages/*"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 42
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --showlocals --verbosity 2"
+log_level = "DEBUG"
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = []
+ignore = []
+exclude = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.poe.env]
+CODE = "tests benches sportorg builder.py"
+SPORTORG_DEBUG = "true"
+
+[tool.poe.tasks.all]
+help = "Run format lint test"
+sequence = ["generate-mo", "generate-version", "format", "lint", "test"]
+default_item_type = "ref"
+
+[tool.poe.tasks.test]
+help = "Test with coverage"
+sequence = [{ ref = "generate-mo" }, { cmd = "pytest -vv --cov" }]
+
+[tool.poe.tasks.test-fast]
+help = "Test until error"
+cmd = "pytest -vv --exitfirst"
+
+[tool.poe.tasks.test-failed]
+help = "Test failed"
+cmd = "pytest -vv --last-failed"
+
+[tool.poe.tasks.bench]
+help = "Run benchmarks"
+sequence = [{ ref = "develop-rust" }, { cmd = "pytest -vv benches --benchmark-only" }]
+
+[tool.poe.tasks.lint]
+help = "Check code"
+sequence = [
+  { ref = "generate-mo" },
+  { cmd = "ruff check ${CODE}" },
+  { cmd = "pytest --dead-fixtures --dup-fixtures" },
+  # {cmd = "mypy ${CODE}"},
+]
+
+[tool.poe.tasks.format]
+help = "Formating code"
+sequence = [{ ref = "generate-mo" }, { cmd = "ruff format ${CODE}" }]
+
+[tool.poe.tasks.generate-mo]
+help = "Generate mo files"
+cmd = "python -m sportorg.language"
+
+[tool.poe.tasks.generate-version]
+help = "Generate version file"
+cmd = "python .github/scripts/version.py"
+
+[tool.poe.tasks.run]
+help = "Run"
+sequence = [{ ref = "generate-mo" }, { cmd = "python SportOrg.pyw" }]
+
+[tool.poe.tasks.build-rust]
+help = "Build rust extension"
+sequence = [
+  { cmd = "maturin build --release --manifest-path crates/sportorg-rust-example/Cargo.toml" },
+  { cmd = "maturin build --release --manifest-path crates/sportorg-core/Cargo.toml" },
+]
+
+[tool.poe.tasks.develop-rust]
+help = "Dev rust extension"
+sequence = [
+  { cmd = "maturin develop --release --manifest-path crates/sportorg-rust-example/Cargo.toml" },
+  { cmd = "maturin develop --release --manifest-path crates/sportorg-core/Cargo.toml" },
+]

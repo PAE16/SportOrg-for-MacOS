@@ -1,0 +1,476 @@
+import logging
+import webbrowser
+
+try:
+    from PySide6.QtGui import QIcon
+    from PySide6.QtWidgets import (
+        QApplication,
+        QCheckBox,
+        QCommandLinkButton,
+        QDialog,
+        QDialogButtonBox,
+        QFormLayout,
+        QHBoxLayout,
+        QLabel,
+        QMessageBox,
+        QPushButton,
+        QTabWidget,
+        QWidget,
+    )
+except ModuleNotFoundError:
+    from PySide2.QtGui import QIcon
+    from PySide2.QtWidgets import (
+        QApplication,
+        QCheckBox,
+        QCommandLinkButton,
+        QDialog,
+        QDialogButtonBox,
+        QFormLayout,
+        QHBoxLayout,
+        QLabel,
+        QMessageBox,
+        QPushButton,
+        QTabWidget,
+        QWidget,
+    )
+
+from sportorg import config, settings
+from sportorg.common.audio import get_sounds
+from sportorg.common.template import get_templates
+from sportorg.gui.dialogs.file_dialog import get_existing_directory
+from sportorg.gui import theme
+from sportorg.gui.global_access import GlobalAccess
+from sportorg.gui.utils.custom_controls import messageBoxQuestion
+from sportorg.gui.utils.custom_controls import AdvComboBox, AdvSpinBox
+from sportorg.language import get_languages, translate
+from sportorg.models.memory import (
+    add_race,
+    copy_race,
+    del_race,
+    get_current_race_index,
+    move_down_race,
+    move_up_race,
+    races,
+    set_current_race_index,
+)
+from sportorg.modules.teamwork.teamwork import Teamwork
+
+
+class Tab:
+    def save(self):
+        pass
+
+
+class MainTab(Tab):
+    def __init__(self, parent):
+        self.widget = QWidget()
+        self.layout = QFormLayout(parent)
+
+        self.widget.setLayout(self.layout)
+
+        self.label_lang = QLabel(translate("Languages"))
+        self.item_lang = AdvComboBox()
+        self.item_lang.addItems(get_languages())
+        self.item_lang.setCurrentText(settings.SETTINGS.locale)
+        self.layout.addRow(self.label_lang, self.item_lang)
+
+        self.label_theme = QLabel(translate("Theme"))
+        self.item_theme = AdvComboBox()
+        self._theme_options = [
+            (theme.THEME_SYSTEM, translate("System")),
+            (theme.THEME_LIGHT, translate("Light")),
+            (theme.THEME_DARK, translate("Dark")),
+        ]
+        self.item_theme.addItems([label for _, label in self._theme_options])
+        current_index = next(
+            (
+                i
+                for i, (key, _) in enumerate(self._theme_options)
+                if key == settings.SETTINGS.theme
+            ),
+            0,
+        )
+        self.item_theme.setCurrentIndex(current_index)
+        self.layout.addRow(self.label_theme, self.item_theme)
+
+        self.item_auto_save = AdvSpinBox(
+            maximum=3600 * 24, value=settings.SETTINGS.file_autosave_interval
+        )
+        self.item_auto_save.setMinimum(5)
+        self.layout.addRow(translate("Auto save") + " (sec)", self.item_auto_save)
+
+        self.item_show_toolbar = QCheckBox(translate("Show toolbar"))
+        self.item_show_toolbar.setChecked(settings.SETTINGS.window_show_toolbar)
+        self.layout.addRow(self.item_show_toolbar)
+
+        self.item_open_recent_file = QCheckBox(translate("Open recent file"))
+        self.item_open_recent_file.setChecked(settings.SETTINGS.file_open_recent_file)
+        self.layout.addRow(self.item_open_recent_file)
+
+        self.item_use_birthday = QCheckBox(translate("Use birthday"))
+        self.item_use_birthday.setChecked(settings.SETTINGS.race_use_birthday)
+        self.layout.addRow(self.item_use_birthday)
+
+        self.item_check_updates = QCheckBox(translate("Check updates"))
+        self.item_check_updates.setChecked(settings.SETTINGS.app_check_updates)
+        # self.layout.addRow(self.item_check_updates)
+
+        self.item_save_in_utf8 = QCheckBox(translate("Save in UTF-8 encoding"))
+        self.item_save_in_utf8.setChecked(settings.SETTINGS.file_save_in_utf8)
+        self.layout.addRow(self.item_save_in_utf8)
+
+        self.item_save_in_gzip = QCheckBox(translate("Compress files to gzip"))
+        self.item_save_in_gzip.setChecked(settings.SETTINGS.file_save_in_gzip)
+
+        self.layout.addRow(self.item_save_in_gzip)
+
+        self.item_generate_srb = QCheckBox(
+            translate("Generate SRB file (SFR results board)")
+        )
+        self.item_generate_srb.setChecked(settings.SETTINGS.file_generate_srb)
+
+        self.layout.addRow(self.item_generate_srb)
+
+    def save(self):
+        old_window_show_toolbar = settings.SETTINGS.window_show_toolbar
+        settings.SETTINGS.locale = self.item_lang.currentText()
+        settings.SETTINGS.file_autosave_interval = self.item_auto_save.value()
+        settings.SETTINGS.file_open_recent_file = self.item_open_recent_file.isChecked()
+        settings.SETTINGS.window_show_toolbar = self.item_show_toolbar.isChecked()
+        settings.SETTINGS.race_use_birthday = self.item_use_birthday.isChecked()
+        settings.SETTINGS.app_check_updates = self.item_check_updates.isChecked()
+        settings.SETTINGS.file_save_in_utf8 = self.item_save_in_utf8.isChecked()
+        settings.SETTINGS.file_save_in_gzip = self.item_save_in_gzip.isChecked()
+        settings.SETTINGS.file_generate_srb = self.item_generate_srb.isChecked()
+        settings.SETTINGS.theme = self._theme_options[self.item_theme.currentIndex()][0]
+
+        if old_window_show_toolbar != self.item_show_toolbar.isChecked():
+            if self.item_show_toolbar.isChecked():
+                mw = GlobalAccess().get_main_window()
+                if hasattr(mw, "toolbar"):
+                    mw.toolbar.show()
+                else:
+                    mw._setup_toolbar()
+            else:
+                mw = GlobalAccess().get_main_window()
+                mw.toolbar.hide()
+
+
+class SoundTab(Tab):
+    def __init__(self, parent):
+        self.widget = QWidget()
+        self.layout = QFormLayout(parent)
+
+        self.widget.setLayout(self.layout)
+
+        self.sounds = get_sounds()
+
+        self.item_enabled = QCheckBox(translate("Enabled"))
+        self.item_enabled.setChecked(settings.SETTINGS.sound_enabled)
+        self.layout.addRow(self.item_enabled)
+
+        self.label_successful = QLabel(translate("Successful result"))
+        self.item_successful = AdvComboBox()
+        self.item_successful.addItems(self.sounds)
+        self.item_successful.setCurrentText(settings.successful_sound_path())
+        self.layout.addRow(self.label_successful, self.item_successful)
+
+        self.label_unsuccessful = QLabel(translate("Unsuccessful result"))
+        self.item_unsuccessful = AdvComboBox()
+        self.item_unsuccessful.addItems(self.sounds)
+        self.item_unsuccessful.setCurrentText(settings.unsuccessful_sound_path())
+        self.layout.addRow(self.label_unsuccessful, self.item_unsuccessful)
+
+        self.item_enabled_rented_card = QCheckBox(translate("Enable rented card sound"))
+        self.item_enabled_rented_card.setChecked(
+            settings.SETTINGS.sound_rented_card_enabled
+            or settings.SETTINGS.sound_enabled
+        )
+        self.layout.addRow(self.item_enabled_rented_card)
+
+        self.label_rented_card = QLabel(translate("Rented card sound"))
+        self.item_rented_card = AdvComboBox()
+        self.item_rented_card.addItems(self.sounds)
+        self.item_rented_card.setCurrentText(settings.rented_card_sound_path())
+        self.layout.addRow(self.label_rented_card, self.item_rented_card)
+
+        self.label_enter_number = QLabel(translate("Enter number sound"))
+        self.item_enter_number = AdvComboBox()
+        self.item_enter_number.addItems(self.sounds)
+        self.item_enter_number.setCurrentText(settings.enter_number_sound_path())
+        self.layout.addRow(self.label_enter_number, self.item_enter_number)
+
+    def save(self):
+        settings.SETTINGS.sound_enabled = self.item_enabled.isChecked()
+        settings.SETTINGS.sound_successful_path = self.item_successful.currentText()
+        settings.SETTINGS.sound_unsuccessful_path = self.item_unsuccessful.currentText()
+        settings.SETTINGS.sound_rented_card_enabled = (
+            self.item_enabled_rented_card.isChecked()
+        )
+        settings.SETTINGS.sound_rented_card_path = self.item_rented_card.currentText()
+        settings.SETTINGS.sound_enter_number_path = self.item_enter_number.currentText()
+
+
+class FunctionsTab(Tab):
+    def __init__(self, parent):
+        self.widget = QWidget()
+        self.layout = QFormLayout(parent)
+
+        self.widget.setLayout(self.layout)
+
+        self.feature_checkboxes = {}
+        for feature, title in (
+            (settings.FEATURE_SPORTIDENT, "SPORTident"),
+            (settings.FEATURE_SFR, "SFR"),
+            (settings.FEATURE_SPORTIDUINO, "Sportiduino (Clever)"),
+            (settings.FEATURE_RFID_IMPINJ, "RFID Impinj"),
+            (settings.FEATURE_SRPID, "SRPID"),
+            (settings.FEATURE_HUICHANG, "Huichang"),
+            (settings.FEATURE_WINORIENT, "Winorient"),
+            (settings.FEATURE_TELEGRAM, "Telegram"),
+        ):
+            checkbox = QCheckBox(translate(title))
+            checkbox.setChecked(settings.is_feature_enabled(feature))
+            self.feature_checkboxes[feature] = checkbox
+            self.layout.addRow(checkbox)
+
+    def save(self):
+        for feature, checkbox in self.feature_checkboxes.items():
+            settings.set_feature_enabled(feature, checkbox.isChecked())
+
+
+class MultidayTab(Tab):
+    def __init__(self, parent):
+        self.widget = QWidget()
+        self.layout = QFormLayout(parent)
+
+        self.buttons_layout = QHBoxLayout()
+        self.button_container = QWidget()
+        self.button_container.setLayout(self.buttons_layout)
+
+        self.widget.setLayout(self.layout)
+
+        self.item_races = AdvComboBox()
+        self.fill_race_list()
+        self.item_races.currentIndexChanged.connect(self.select_race)
+        self.layout.addRow(self.item_races)
+
+        def add_race_function():
+            add_race()
+            self.fill_race_list()
+
+        self.item_new = QPushButton(translate("New"))
+        self.item_new.clicked.connect(add_race_function)
+        self.buttons_layout.addWidget(self.item_new)
+
+        def copy_race_function():
+            copy_race()
+            self.fill_race_list()
+
+        self.item_copy = QPushButton(translate("Copy"))
+        self.item_copy.clicked.connect(copy_race_function)
+        self.buttons_layout.addWidget(self.item_copy)
+
+        def move_up_race_function():
+            if get_current_race_index() <= 0:
+                return
+            if not self._confirm_day_switch_teamwork_stop():
+                return
+            move_up_race()
+            self.fill_race_list()
+            self._refresh_main_window_after_day_switch()
+
+        self.item_move_up = QPushButton(translate("Move up"))
+        self.item_move_up.clicked.connect(move_up_race_function)
+        self.buttons_layout.addWidget(self.item_move_up)
+
+        def move_down_race_function():
+            if get_current_race_index() >= len(races()) - 1:
+                return
+            if not self._confirm_day_switch_teamwork_stop():
+                return
+            move_down_race()
+            self.fill_race_list()
+            self._refresh_main_window_after_day_switch()
+
+        self.item_move_down = QPushButton(translate("Move down"))
+        self.item_move_down.clicked.connect(move_down_race_function)
+        self.buttons_layout.addWidget(self.item_move_down)
+
+        def del_race_function():
+            if len(races()) <= 1:
+                return
+            if not self._confirm_day_switch_teamwork_stop():
+                return
+            del_race()
+            self.fill_race_list()
+            self._refresh_main_window_after_day_switch()
+
+        self.item_del = QPushButton(translate("Delete"))
+        self.item_del.clicked.connect(del_race_function)
+        self.buttons_layout.addWidget(self.item_del)
+
+        self.layout.addRow(self.button_container)
+
+    def save(self):
+        pass
+
+    def select_race(self, _index=None):
+        index = self.item_races.currentIndex()
+        if index < 0 or index == get_current_race_index():
+            return
+
+        if not self._confirm_day_switch_teamwork_stop():
+            self.item_races.blockSignals(True)
+            self.item_races.setCurrentIndex(get_current_race_index())
+            self.item_races.blockSignals(False)
+            return
+
+        set_current_race_index(index)
+        self._refresh_main_window_after_day_switch()
+
+    def fill_race_list(self):
+        race_list = []
+        index = get_current_race_index()
+
+        self.item_races.clear()
+        for cur_race in races():
+            race_list.append(
+                cur_race.data.short_title or str(cur_race.data.get_start_datetime())
+            )
+        self.item_races.addItems(race_list)
+
+        self.item_races.setCurrentIndex(index)
+
+    @staticmethod
+    def _refresh_main_window_after_day_switch():
+        main_window = GlobalAccess().get_main_window()
+        main_window.init_model()
+        main_window.set_title()
+
+    @staticmethod
+    def _confirm_day_switch_teamwork_stop() -> bool:
+        if not Teamwork().is_alive():
+            return True
+
+        answer = messageBoxQuestion(
+            GlobalAccess().get_main_window(),
+            translate("Question"),
+            translate("Teamwork will be disabled, do you really want to continue?"),
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return False
+
+        Teamwork().stop()
+        return True
+
+
+class TemplateTab(Tab):
+    def __init__(self, parent):
+        self.widget = QWidget()
+        self.layout = QFormLayout(parent)
+
+        self.widget.setLayout(self.layout)
+
+        self.item_download_description = QLabel()
+        self.item_download_description.setText(
+            translate(
+                "Download the zipped templates file — Source code (zip/tar.gz),\nthen unzip it and choose your locale"
+            )
+        )
+        self.layout.addRow(self.item_download_description)
+
+        self.item_download = QCommandLinkButton(translate("Download templates"))
+
+        def open_templates_page() -> None:
+            webbrowser.open("https://github.com/sportorg/templates/releases", new=2)
+
+        self.item_download.clicked.connect(open_templates_page)
+        self.layout.addRow(self.item_download)
+
+        self.item_custom_dir = QPushButton(translate("Select the templates directory"))
+
+        def select_custom_dir() -> None:
+            templates_path = get_existing_directory(
+                translate("Open the templates directory"), settings.template_dir()
+            )
+            if not templates_path:
+                return
+
+            self.item_custom_dirpath.setText(templates_path)
+            settings.SETTINGS.templates_path = templates_path
+            self.item_template.clear()
+            self.item_template.addItems(
+                sorted(get_templates(settings.template_dir("reports")))
+            )
+
+        self.item_custom_dir.clicked.connect(select_custom_dir)
+        self.layout.addRow(self.item_custom_dir)
+
+        self.item_custom_dirpath = QLabel()
+        self.item_custom_dirpath.setText(settings.template_dir())
+        self.layout.addRow(self.item_custom_dirpath)
+
+    def save(self):
+        pass
+
+
+class SettingsDialog(QDialog):
+    def __init__(self):
+        super().__init__(GlobalAccess().get_main_window())
+        self.widgets = [
+            (MainTab(self), translate("Main settings")),
+            (FunctionsTab(self), translate("Functions")),
+            (SoundTab(self), translate("Sounds")),
+            (MultidayTab(self), translate("Multi day")),
+            (TemplateTab(self), translate("Templates directory")),
+        ]
+
+    def exec_(self):
+        self.init_ui()
+        return super().exec_()
+
+    def init_ui(self):
+        self.setWindowTitle(translate("Settings"))
+        self.setWindowIcon(QIcon(config.ICON))
+        self.setSizeGripEnabled(False)
+        self.setModal(True)
+
+        self.tab_widget = QTabWidget()
+
+        for tab, title in self.widgets:
+            self.tab_widget.addTab(tab.widget, title)
+
+        self.layout = QFormLayout(self)
+        self.layout.addRow(self.tab_widget)
+
+        def cancel_changes():
+            self.close()
+
+        def apply_changes():
+            try:
+                self.apply_changes_impl()
+            except Exception as e:
+                logging.exception(e)
+            self.close()
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_ok = button_box.button(QDialogButtonBox.Ok)
+        self.button_ok.setText(translate("OK"))
+        self.button_ok.clicked.connect(apply_changes)
+        self.button_cancel = button_box.button(QDialogButtonBox.Cancel)
+        self.button_cancel.setText(translate("Cancel"))
+        self.button_cancel.clicked.connect(cancel_changes)
+        self.layout.addRow(button_box)
+
+        self.show()
+
+    def apply_changes_impl(self):
+        for tab, _ in self.widgets:
+            tab.save()
+        theme.apply_theme(QApplication.instance(), settings.SETTINGS.theme)
+        main_window = GlobalAccess().get_main_window()
+        main_window.refresh_menu()
+        main_window.refresh()
+        settings.save_settings_to_file()
