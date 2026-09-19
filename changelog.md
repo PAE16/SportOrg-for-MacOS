@@ -2,6 +2,16 @@
 
 ## next
 
+### MacOS edition
+
++ Added the `SportOrg for MacOS` application bundle and DMG build.
++ MacOS packages are universal binaries supporting Apple Silicon (`arm64`) and Intel (`x86_64`) Macs.
++ Added MacOS application icon generation and packaging through `cx_Freeze`.
++ Added documented installation and local DMG build workflows.
++ Added bundled report templates and reliable resolution of templates, sounds, configuration and logs from the installed application directory.
++ Added a normalized SportOrg-to-SFR mapping layer for race metadata, groups, teams and participants.
++ Added safer SFR export handling for missing teams, groups, qualifications, dates and time values.
+
 ### Improvements
 
 + Generation of SRB file (SFR results board) on saving
