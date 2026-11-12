@@ -1,12 +1,13 @@
+import logging
 import platform
-from typing import List
+from typing import List, Optional
 
 from sportorg import settings
 from sportorg.common.template import get_text_from_file
 from sportorg.language import translate
 from sportorg.models.memory import Course, Group, Organization, Result, race
 from sportorg.models.result.split_calculation import GroupSplits
-from sportorg.modules.printing.printing import print_html
+from sportorg.modules.printing.printing import PrinterError, print_html
 from sportorg.modules.printing.printout_split import SportorgPrinter
 
 
@@ -22,41 +23,41 @@ def split_printout(results: List[Result]):
     obj = race()
 
     printer = settings.SETTINGS.printer_split
-    if not printer:
-        raise NoPrinterSelectedException("No printer selected")
 
     margins = {
-        "left": obj.get_setting("print_margin_left", 5.0),
-        "top": obj.get_setting("print_margin_top", 5.0),
-        "right": obj.get_setting("print_margin_right", 5.0),
-        "bottom": obj.get_setting("print_margin_bottom", 5.0),
+        "left": obj.get_setting("print_margin_left", 2.0),
+        "top": obj.get_setting("print_margin_top", 2.0),
+        "right": obj.get_setting("print_margin_right", 2.0),
+        "bottom": obj.get_setting("print_margin_bottom", 2.0),
     }
-    template_path = obj.get_setting(
-        "split_template", settings.template_dir("split", "1_split_printout.html")
-    )
+    template_path = obj.get_setting("split_template") or settings.DEFAULT_SPLIT_TEMPLATE
 
-    # don't process results in one group several times while bulk printing, track processed groups
-    processed_groups = set()
+    group_splits_by_group = {}
 
-    isDirectMode = False
-    if not str(template_path).endswith(".html") and platform.system() == "Windows":
-        # Internal split printout, pure python. Works faster, than jinja2 template + pdf
-        isDirectMode = True
+    pr: Optional[SportorgPrinter] = None
+    if not str(template_path).endswith(".html"):
+        if platform.system() == "Windows":
+            # Internal split printout, pure python. Works faster, than jinja2 template + pdf
+            size = 60  # base scale factor is 60, used win32con.MM_TWIPS MapMode (unit = 1/20 of dot, 72dpi)
 
-        size = 60  # base scale factor is 60, used win32con.MM_TWIPS MapMode (unit = 1/20 of dot, 72dpi)
+            array = str(template_path).split(translate("scale") + "=")
+            if len(array) > 1:
+                scale = array[1]
+                if scale.isdecimal():
+                    size = int(scale) * size // 100
 
-        array = str(template_path).split(translate("scale") + "=")
-        if len(array) > 1:
-            scale = array[1]
-            if scale.isdecimal():
-                size = int(scale) * size // 100
-
-        pr = SportorgPrinter(
-            printer,
-            size,
-            int(obj.get_setting("print_margin_left", 5.0)),
-            int(obj.get_setting("print_margin_top", 5.0)),
-        )
+            pr = SportorgPrinter(
+                printer,
+                size,
+                int(obj.get_setting("print_margin_left", 2.0)),
+                int(obj.get_setting("print_margin_top", 2.0)),
+            )
+        else:
+            logging.warning(
+                "Internal split printing is only supported on Windows; using %s",
+                settings.DEFAULT_SPLIT_TEMPLATE,
+            )
+            template_path = settings.DEFAULT_SPLIT_TEMPLATE
 
     for result in results:
         person = result.person
@@ -68,13 +69,13 @@ def split_printout(results: List[Result]):
         course = obj.find_course(result) or Course()
         organization = person.organization or Organization()
 
-        if group not in processed_groups:
-            group_splits = GroupSplits(obj, group).generate(True)
-            processed_groups.add(group)
+        if group not in group_splits_by_group:
+            group_splits_by_group[group] = GroupSplits(obj, group).generate(True)
+        group_splits = group_splits_by_group[group]
 
         result.check_who_can_win()
 
-        if isDirectMode:
+        if pr is not None:
             pr.print_split(result)
         else:
             template = get_text_from_file(
@@ -89,7 +90,7 @@ def split_printout(results: List[Result]):
             )
             print_html(printer, template, **margins)
 
-    if isDirectMode:
+    if pr is not None:
         pr.end_doc()
 
 

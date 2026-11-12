@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ person.surname }} {{ person.name }} - сплиты</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            width: 100%;
+            font-family: "Courier New", Consolas, monospace;
+            font-size: 10pt;
+            font-weight: bold;
+            color: #000;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .title {
+            font-size: 10pt;
+            text-align: center;
+            margin: 2px 0;
+        }
+
+        .name {
+            font-size: 12pt;
+            text-align: center;
+            margin: 4px 0 2px 0;
+        }
+
+        .sep {
+            border-top: 1px dashed #000;
+            margin: 5px 0;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        td {
+            padding: 1px 3px 1px 0;
+            white-space: nowrap;
+            font-size: 9.5pt;
+        }
+
+        td.num {
+            text-align: right;
+        }
+
+        .status {
+            font-size: 15pt;
+            text-align: center;
+            margin: 8px 0 4px 0;
+        }
+
+        .line {
+            margin: 2px 0;
+        }
+
+        .missing {
+            margin-top: 4px;
+            font-size: 9pt;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Шапка -->
+    <div class="title">{{ race.data.title }}</div>
+    <div class="title">{{ race.data.start_datetime|date }}</div>
+    <div class="name">{{ person.surname }} {{ person.name }}</div>
+    <div class="center">{{ group.name }} | {{ organization.name }}</div>
+    <div class="center">№ {{ person.bib }} | Чип {{ person.card_number }}</div>
+    <div class="center">Старт: {{ result.start_msec|tohhmmss }}</div>
+
+    <div class="sep"></div>
+
+    <!-- Сплиты: КП | код | время от старта | отрезок | место на отрезке -->
+    <table>
+        {% set split_index = namespace(value=0) %}
+        {% for leg in result.splits %}
+            {% if leg.is_correct %}
+            {% set split_index.value = split_index.value + 1 %}
+            <tr>
+                <td>{{ leg.course_index + 1 if leg.course_index >= 0 else split_index.value }}</td>
+                <td>{{ leg.code }}</td>
+                <td class="num">{{ leg.relative_time|tohhmmss }}</td>
+                <td class="num">{{ leg.leg_time|tohhmmss('%M:%S') }}</td>
+                <td class="num">{% if leg.leg_place %}{{ leg.leg_place }}{% endif %}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td></td>
+                <td>{{ leg.code }}</td>
+                <td class="num">{{ leg.relative_time|tohhmmss }}</td>
+                <td></td>
+                <td></td>
+            </tr>
+            {% endif %}
+        {% endfor %}
+    </table>
+
+    <div class="sep"></div>
+
+    <!-- Итоги -->
+    <div class="line">Финиш: {{ result.finish_msec|tohhmmss }} {{ result.speed }}</div>
+
+    {% if race['settings'].get('result_processing_mode', 'time') == 'scores' and result.rogaine_penalty > 0 %}
+    <div class="line">Очки: {{ result.rogaine_score + result.rogaine_penalty }}</div>
+    <div class="line">Штраф: {{ result.rogaine_penalty }}</div>
+    {% endif %}
+
+    {% if race['settings'].get('marked_route_mode', 'off') == 'laps' %}
+    <div class="line">Штрафные круги: {{ result.penalty_laps }}</div>
+    {% elif race['settings'].get('marked_route_mode', 'off') == 'time' %}
+    <div class="line">Штраф: {{ result.penalty_time|tohhmmss }}</div>
+    {% endif %}
+
+    <div class="line">Результат: {{ result.result }}</div>
+
+    {% if result.place > 0 %}
+    <div class="line">Место: {{ result.place }} из {{ group.count_finished }} (всего {{ group.count_person }})</div>
+        {% if "can_win_count" in result %}
+            {% if result.can_win_count > 0 %}
+            <div class="line">Могут обогнать: {{ result.can_win_count }}</div>
+            <div class="line">Итог в {{ result.final_result_time }}</div>
+            {% else %}
+            <div class="line">Вас уже никто не обгонит</div>
+            {% endif %}
+        {% endif %}
+    {% endif %}
+
+    <!-- Статус отметки -->
+    {% if result.status == 1 %}
+    <div class="status">ОТМЕТКА - OK</div>
+    {% else %}
+    <div class="status">ОТМЕТКА - ОШИБКА</div>
+    <div class="missing">КП по дистанции: {% for control in course.controls %}{{ control.code }} {% endfor %}</div>
+    {% endif %}
+
+</body>
+</html>

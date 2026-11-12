@@ -4,7 +4,16 @@ import gzip
 import locale
 
 import dateutil.parser
-from jinja2 import Environment, FileSystemLoader, Template
+from jinja2 import Environment, FileSystemLoader
+
+
+def _create_environment(loader=None):
+    env = Environment(loader=loader, finalize=finalize)
+    env.filters["tohhmmss"] = to_hhmmss
+    env.filters["date"] = date
+    env.filters["compress"] = compress
+    env.policies["json.dumps_kwargs"]["ensure_ascii"] = False
+    return env
 
 
 def to_hhmmss(value, fmt=None):
@@ -42,8 +51,7 @@ def get_text_from_path(path, **kwargs):
     with open(path, errors="ignore") as f:
         html = f.read().encode(custom_encoding, "ignore").decode(errors="ignore")
 
-    template = Template(html, finalize=finalize)
-    return template.render(**kwargs)
+    return _create_environment().from_string(html).render(**kwargs)
 
 
 def compress(data: str) -> str:
@@ -51,11 +59,7 @@ def compress(data: str) -> str:
 
 
 def get_text_from_template(searchpath: str, path: str, **kwargs):
-    env = Environment(loader=FileSystemLoader(searchpath), finalize=finalize)
-    env.filters["tohhmmss"] = to_hhmmss
-    env.filters["date"] = date
-    env.filters["compress"] = compress
-    env.policies["json.dumps_kwargs"]["ensure_ascii"] = False
+    env = _create_environment(FileSystemLoader(searchpath))
     template = env.get_template(path)
 
     return template.render(**kwargs)

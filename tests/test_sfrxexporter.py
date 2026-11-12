@@ -226,6 +226,20 @@ class TestSFRxExporter:
         assert competitor[14] == "0"
         assert competitor[16] == "0"
 
+    def test_export_sfrx_without_result_keeps_participant_result_fields_empty(
+        self, sfrxexporter
+    ):
+        self.race.find_person_result.return_value = None
+        sfrxexporter.memory.race.return_value = self.race
+        sfrxexporter.translate = lambda x: x
+
+        assert sfrxexporter.export_sfrx(self.test_file) is True
+
+        competitor = next(row for row in self.read_rows() if row[0].startswith("c"))
+        assert competitor[13] == "10:30:00"
+        assert competitor[14] == ""
+        assert competitor[16] == ""
+
     def test_export_sfrx_with_relay(self, sfrxexporter):
         self.create_mock_race(RaceType.RELAY)
         sfrxexporter.memory.race.return_value = self.race

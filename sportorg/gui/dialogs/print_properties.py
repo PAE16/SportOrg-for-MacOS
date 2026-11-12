@@ -1,9 +1,10 @@
 import logging
+import platform
 
 try:
     from PySide6 import QtPrintSupport
     from PySide6.QtGui import QIcon
-    from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog, QPrinter
+    from PySide6.QtPrintSupport import QPrintDialog, QPrinter
     from PySide6.QtWidgets import (
         QCheckBox,
         QDialog,
@@ -12,12 +13,13 @@ try:
         QFormLayout,
         QGroupBox,
         QLabel,
+        QMessageBox,
         QPushButton,
     )
 except ModuleNotFoundError:
     from PySide2 import QtPrintSupport
     from PySide2.QtGui import QIcon
-    from PySide2.QtPrintSupport import QAbstractPrintDialog, QPrintDialog, QPrinter
+    from PySide2.QtPrintSupport import QPrintDialog, QPrinter
     from PySide2.QtWidgets import (
         QCheckBox,
         QDialog,
@@ -26,6 +28,7 @@ except ModuleNotFoundError:
         QFormLayout,
         QGroupBox,
         QLabel,
+        QMessageBox,
         QPushButton,
     )
 
@@ -59,7 +62,8 @@ class PrintPropertiesDialog(QDialog):
 
         def select_split_printer():
             printer = self.select_printer()
-            self.selected_split_printer.setText(printer)
+            if printer is not None:
+                self.selected_split_printer.setText(printer)
 
         self.split_printer_selector.clicked.connect(select_split_printer)
 
@@ -71,11 +75,13 @@ class PrintPropertiesDialog(QDialog):
 
         self.label_template = QLabel(translate("Template"))
         self.item_template = AdvComboBox(min_width=160, min_context_length_symbols=32)
-        self.item_template.addItem(translate("Internal printing"))
-        self.item_template.addItem(
-            translate("Internal printing") + " " + translate("scale") + "=75"
-        )
+        if platform.system() == "Windows":
+            self.item_template.addItem(translate("Internal printing"))
+            self.item_template.addItem(
+                translate("Internal printing") + " " + translate("scale") + "=75"
+            )
         self.item_template.addItems(get_templates(settings.template_dir("split")))
+        self.item_template.setCurrentText(settings.DEFAULT_SPLIT_TEMPLATE)
         self.layout.addRow(self.label_template, self.item_template)
 
         self.item_custom_path = QPushButton(translate("Choose template"))
@@ -114,7 +120,9 @@ class PrintPropertiesDialog(QDialog):
             try:
                 self.apply_changes_impl()
             except Exception as e:
-                logging.error(str(e))
+                logging.exception("Failed to save printer settings")
+                QMessageBox.warning(self, translate("Error"), str(e))
+                return
             self.close()
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -142,22 +150,23 @@ class PrintPropertiesDialog(QDialog):
 
         self.print_splits_checkbox.setChecked(obj.get_setting("split_printout", False))
 
-        template = obj.get_setting("split_template")
-        if template:
-            self.item_template.setCurrentText(template)
+        template = obj.get_setting("split_template") or settings.DEFAULT_SPLIT_TEMPLATE
+        if platform.system() != "Windows" and not template.endswith(".html"):
+            template = settings.DEFAULT_SPLIT_TEMPLATE
+        self.item_template.setCurrentText(template)
 
-        self.item_margin_left.setValue(obj.get_setting("print_margin_left", 5.0))
-        self.item_margin_top.setValue(obj.get_setting("print_margin_top", 5.0))
-        self.item_margin_right.setValue(obj.get_setting("print_margin_right", 5.0))
-        self.item_margin_bottom.setValue(obj.get_setting("print_margin_bottom", 5.0))
+        self.item_margin_left.setValue(obj.get_setting("print_margin_left", 2.0))
+        self.item_margin_top.setValue(obj.get_setting("print_margin_top", 2.0))
+        self.item_margin_right.setValue(obj.get_setting("print_margin_right", 2.0))
+        self.item_margin_bottom.setValue(obj.get_setting("print_margin_bottom", 2.0))
 
     def select_printer(self):
         try:
             printer = QtPrintSupport.QPrinter()
             pd = QPrintDialog(printer)
-            pd.setOption(QAbstractPrintDialog.PrintSelection)
-            pd.exec_()
-            return printer.printerName()
+            if pd.exec_() == QDialog.Accepted:
+                return printer.printerName()
+            return None
         except Exception as e:
             logging.error(str(e))
         return None

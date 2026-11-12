@@ -1,21 +1,25 @@
+from importlib import import_module
 import platform
 
 from sportorg.language import translate
 from sportorg.models.memory import Group, Result, ResultStatus, race
 from sportorg.models.result.result_calculation import ResultCalculation
 
-if platform.system() == "Windows":  # current realisation works on Windows only
-    import win32con
-    import win32print
-    import win32ui
-
 
 class SportorgPrinter:
     def __init__(self, printer_name, scale_factor=60, x_offset=5, y_offset=5):
-        if not printer_name:
-            printer_name = win32print.GetDefaultPrinter()
+        if platform.system() != "Windows":
+            raise RuntimeError("Internal split printing is only supported on Windows")
 
-        self.dc = win32ui.CreateDC()
+        win32con = import_module("win32con")
+        self._win32print = import_module("win32print")
+        self._win32ui = import_module("win32ui")
+        if not printer_name:
+            printer_name = self._win32print.GetDefaultPrinter()
+
+        self.dc = self._win32ui.CreateDC()
+        if self.dc is None:
+            raise RuntimeError("Failed to create a Windows printer device context")
         self.dc.CreatePrinterDC(printer_name)
         self.dc.SetMapMode(
             win32con.MM_TWIPS
@@ -44,7 +48,7 @@ class SportorgPrinter:
         self.y -= int(self.scale_factor * offset)
 
     def print_line(self, text, font_name, font_size, font_weight=400):
-        font = win32ui.CreateFont(
+        font = self._win32ui.CreateFont(
             {
                 "name": font_name,
                 "height": int(self.scale_factor * font_size),
@@ -85,7 +89,7 @@ class SportorgPrinter:
         font_size = 50
         font_weight = 400
 
-        font = win32ui.CreateFont(
+        font = self._win32ui.CreateFont(
             {
                 "name": font_name,
                 "height": int(self.scale_factor * font_size),
@@ -109,7 +113,7 @@ class SportorgPrinter:
         font_size = 50
         font_weight = 400
 
-        font = win32ui.CreateFont(
+        font = self._win32ui.CreateFont(
             {
                 "name": font_name,
                 "height": int(self.scale_factor * font_size),
@@ -126,7 +130,7 @@ class SportorgPrinter:
         font_size_small = 15
         font_weight = 400
 
-        font = win32ui.CreateFont(
+        font = self._win32ui.CreateFont(
             {
                 "name": font_name_small,
                 "height": int(self.scale_factor * font_size_small),
@@ -344,7 +348,7 @@ class SportorgPrinter:
                     + ")"
                 )
             self.print_line(place, fn, fs_main)
-        elif result.person.is_out_of_competition:
+        elif person.is_out_of_competition:
             place = translate("Place") + ": " + translate("o/c").upper()
             self.print_line(place, fn, fs_main)
 
@@ -398,10 +402,13 @@ class SportorgPrinter:
                 res = ResultCalculation(obj).get_group_finishes(group)
                 self.print_line(translate("Draft results"), fn, fs_main)
                 for cur_res in res[:10]:
+                    cur_person = cur_res.person
+                    if cur_person is None:
+                        continue
                     self.print_line(
                         ("   " + str(cur_res.get_place()))[-3:]
                         + " "
-                        + (cur_res.person.full_name + " " * 22)[:22]
+                        + (cur_person.full_name + " " * 22)[:22]
                         + " "
                         + cur_res.get_result(),
                         fn,

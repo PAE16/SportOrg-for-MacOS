@@ -28,6 +28,7 @@ DEFAULT_FEATURES = {
 
 # Bumped whenever stored settings need a one-time fix-up on load.
 CURRENT_SETTINGS_VERSION = 2
+DEFAULT_SPLIT_TEMPLATE = "split/split_printout_80mm.html"
 
 
 @dataclass

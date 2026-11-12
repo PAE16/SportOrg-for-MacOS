@@ -1,6 +1,8 @@
 import logging
+import platform
 import sys
 import time
+from importlib import import_module
 from multiprocessing import Process, Queue
 
 qt_version = 5
@@ -12,13 +14,66 @@ try:
 
     qt_version = 6
 except ModuleNotFoundError:
-    from PySide2.QtCore import QMarginsF, QSizeF
-    from PySide2.QtGui import QPageLayout, QTextDocument
-    from PySide2.QtPrintSupport import QPrinter
-    from PySide2.QtWidgets import QApplication
+    QtCore = import_module("PySide2.QtCore")
+    QtGui = import_module("PySide2.QtGui")
+    QtPrintSupport = import_module("PySide2.QtPrintSupport")
+    QtWidgets = import_module("PySide2.QtWidgets")
+
+    QMarginsF = QtCore.QMarginsF
+    QSizeF = QtCore.QSizeF
+    QPageLayout = QtGui.QPageLayout
+    QTextDocument = QtGui.QTextDocument
+    QPrinter = QtPrintSupport.QPrinter
+    QApplication = QtWidgets.QApplication
 
 from sportorg.common.fake_std import FakeStd
 from sportorg.gui.global_access import GlobalAccess
+
+
+class PrinterError(RuntimeError):
+    pass
+
+
+def _set_page_margins(printer, left, top, right, bottom):
+    set_page_margins = getattr(printer, "setPageMargins")
+    if qt_version == 5:
+        set_page_margins(
+            left,
+            top,
+            right,
+            bottom,
+            getattr(QPrinter, "Millimeter"),
+        )
+    else:
+        set_page_margins(
+            QMarginsF(left, top, right, bottom),
+            QPageLayout.Unit.Millimeter,
+        )
+
+
+def _print_html_in_process(printer_name, html, left, top, right, bottom):
+    if QApplication.instance() is None:
+        raise PrinterError("HTML printing requires the running SportOrg application")
+
+    printer = QPrinter()
+    if printer_name:
+        printer.setPrinterName(printer_name)
+    if not printer.isValid():
+        selected_printer = printer_name or "system default"
+        raise PrinterError(
+            "The selected printer is unavailable: {}".format(selected_printer)
+        )
+
+    printer.setFullPage(False)
+    _set_page_margins(printer, left, top, right, bottom)
+
+    document = QTextDocument()
+    page_size = QSizeF(printer.width(), printer.height())
+    document.setPageSize(page_size)
+    document.setDocumentMargin(0.0)
+    document.setHtml(html)
+    document.print_(printer)
+    logging.info("print_html: HTML document sent to printer")
 
 
 class PrintProcess(Process):
@@ -33,12 +88,6 @@ class PrintProcess(Process):
         self.margin_right = right
         self.margin_bottom = bottom
         self.queue = queue
-
-    def set_app_printer(self, app, printer):
-        self.app = app
-        self.printer_name = printer
-        self.mw.set_split_printer_app(app)
-        self.mw.set_split_printer(printer)
 
     def run(self):
         t = time.process_time()
@@ -71,24 +120,13 @@ class PrintProcess(Process):
             text_document = QTextDocument()
 
             printer.setFullPage(False)
-            if qt_version == 5:
-                printer.setPageMargins(
-                    self.margin_left,
-                    self.margin_top,
-                    self.margin_right,
-                    self.margin_bottom,
-                    QPrinter.Unit.Millimeter,
-                )
-            else:
-                printer.setPageMargins(
-                    QMarginsF(
-                        self.margin_left,
-                        self.margin_top,
-                        self.margin_right,
-                        self.margin_bottom,
-                    ),
-                    QPageLayout.Unit.Millimeter,
-                )
+            _set_page_margins(
+                printer,
+                self.margin_left,
+                self.margin_top,
+                self.margin_right,
+                self.margin_bottom,
+            )
 
             page_size = QSizeF()
             page_size.setHeight(printer.height())
@@ -138,6 +176,13 @@ def print_html(
     printer_name, html, left=5.0, top=5.0, right=5.0, bottom=5.0, scale=100.0
 ):
     logging.info("print_html: Starting printing process")
+    if html == "CLOSE_SPLIT_PRN":
+        if platform.system() != "Windows":
+            return
+    elif platform.system() != "Windows":
+        _print_html_in_process(printer_name, html, left, top, right, bottom)
+        return
+
     thread = GlobalAccess().get_main_window().get_split_printer_thread()
     queue = GlobalAccess().get_main_window().get_split_printer_queue()
     if not queue:

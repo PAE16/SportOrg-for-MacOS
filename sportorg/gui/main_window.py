@@ -61,6 +61,7 @@ from sportorg.modules.printing.model import (
     split_printout,
     split_printout_close,
 )
+from sportorg.modules.printing.printing import PrinterError
 from sportorg.modules.rfid_impinj.rfid_impinj import ImpinjClient
 from sportorg.modules.sfr.sfrreader import SFRReaderClient
 from sportorg.modules.sound import Sound
@@ -1000,7 +1001,7 @@ class MainWindow(QMainWindow):
                 )
                 confirm_printing = confirm == QMessageBox.Yes
             if confirm_printing:
-                split_printout(print_results)
+                self.split_printout(print_results)
 
         except Exception as e:
             logging.exception(str(e))
@@ -1018,6 +1019,9 @@ class MainWindow(QMainWindow):
             mes = QMessageBox(self)
             mes.setText(translate("No printer selected"))
             mes.exec_()
+        except PrinterError as e:
+            logging.exception("Split printing failed")
+            QMessageBox.warning(self, translate("Error"), str(e))
 
     def add_object(self):
         try:

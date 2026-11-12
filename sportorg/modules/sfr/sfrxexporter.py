@@ -231,7 +231,7 @@ def _write_competitors(f, race: Race):
         finish_value = _get_finish_time(result)
 
         start_time = _format_time(start_value)
-        finish_time = _format_time(finish_value)
+        finish_time = _format_time(finish_value) if result else ""
         result_value = _get_result_value(result, start_value, finish_value, person)
 
         surname = person.surname or ""
@@ -371,7 +371,7 @@ def _get_finish_time(result):
 
 def _get_result_value(result, start_time, finish_time, person):
     if not result:
-        return "0"
+        return ""
 
     if _is_status_ok(getattr(result, "status", None)):
         get_result_otime = getattr(result, "get_result_otime", None)

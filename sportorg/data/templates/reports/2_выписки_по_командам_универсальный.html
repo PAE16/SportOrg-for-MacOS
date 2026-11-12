@@ -1,14 +1,106 @@
 {% extends "base.html" %}
 {% block title %}Team list{% endblock %}
-{% block head %}{{ super() }}{% endblock %}
+{% block head %}
+{{ super() }}
+<style>
+    @page {
+        size: A4 portrait;
+        margin: 8mm;
+    }
+
+    .team-page {
+        box-sizing: border-box;
+        min-height: 281mm;
+        break-after: page;
+        page-break-after: always;
+    }
+
+    .team-page:last-child {
+        break-after: auto;
+        page-break-after: auto;
+    }
+
+    .team-page-pair {
+        display: grid;
+        grid-template-rows: repeat(2, 139mm);
+        gap: 3mm;
+        align-content: start;
+    }
+
+    .team-slot {
+        min-height: 139mm;
+        box-sizing: border-box;
+        padding-bottom: 2mm;
+        border-bottom: 1px solid #999;
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    .team-block {
+        display: flow-root;
+    }
+
+    .team-page-large {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .team-page-large-bottom .team-block {
+        margin-top: auto;
+    }
+
+    .team-measure-container {
+        position: absolute;
+        top: 0;
+        left: -10000px;
+        width: 194mm;
+        font-size: 85%;
+        visibility: hidden;
+    }
+
+    .team-measure-container h1,
+    .team-measure-container h2,
+    .team-measure-container h3,
+    .team-measure-container h4,
+    .team-measure-container h5,
+    .team-measure-container h6 {
+        margin: 1px 0;
+    }
+
+    .team-measure-container table.sportorg-table {
+        display: table;
+        width: 100%;
+        margin-bottom: 1px;
+    }
+
+    .team-measure-container table.sportorg-table th,
+    .team-measure-container table.sportorg-table td {
+        padding: 1px 10px;
+    }
+
+    .team-measure-container pre {
+        margin-bottom: 1px;
+    }
+
+    .team-block h2 {
+        font-size: 10pt;
+        overflow-wrap: anywhere;
+    }
+</style>
+{% endblock %}
 
 {% block content %}
-<div id="org-list-tables"></div>
-{% raw %}
+<div
+    id="org-list-tables"
+    data-race="{{ race|tojson|forceescape }}"
+    data-rent-cards="{{ rent_cards|tojson|forceescape }}"
+    data-selected="{{ selected|tojson|forceescape }}"
+></div>
 <script>
-    var race = {% endraw %}{{race|tojson}}{% raw %};
-    var rent_cards = {% endraw %}{{rent_cards|tojson}}{% raw %};
-    var selected = {% endraw %}{{selected|tojson}}{% raw %};
+    var reportElement = document.getElementById('org-list-tables');
+    var race = JSON.parse(reportElement.dataset.race);
+    var rent_cards = JSON.parse(reportElement.dataset.rentCards);
+    var selected = JSON.parse(reportElement.dataset.selected);
     racePreparation(race);
 
     function getStartListByOrg(org, sort) {
@@ -123,7 +215,10 @@
         }
     }.init();
 
-    var store = {};
+    var store = {
+        largeTeamPosition: 'top'
+    };
+    var HALF_PAGE_HEIGHT = '137mm';
 
     function render(sort, noCombine) {
         if (sort) {
@@ -157,42 +252,114 @@
             return infoBlock;
         };
 
+        var makeTable = function (rows) {
+            if (store.tableView) {
+                return new TableGenerator(rows, Fields.fields).getTable({className: 'sportorg-table'});
+            }
+            return new TableTextGenerator(rows, Fields.fields).getTable();
+        };
+
+        var makePageBreak = function () {
+            var newPage = document.createElement('div');
+            newPage.className = 'new-page';
+            return newPage;
+        };
+
+        var makeTeamBlock = function (block) {
+            var teamBlock = document.createElement('div');
+            teamBlock.className = 'team-block';
+
+            var titleBlock = document.createElement('h2');
+            titleBlock.id = block.org.name;
+            titleBlock.appendChild(document.createTextNode(
+                dateFormat(race.data.start_datetime) + ' / ' + block.org.name + ' / ' + block.org.contact
+            ));
+
+            teamBlock.appendChild(titleBlock);
+            teamBlock.appendChild(makeTable(block.rows));
+            teamBlock.appendChild(getInfoBlock(block.rows));
+            return teamBlock;
+        };
+
         var resultBlock = document.getElementById('org-list-tables');
         resultBlock.innerHTML = '';
+        resultBlock.className = '';
         if (store.noCombine) {
             var rows = getStartListByOrg(null, store.sort);
-            if (store.tableView) {
-                resultBlock.appendChild(new TableGenerator(rows, Fields.fields).getTable({className: 'sportorg-table'}));
-            } else {
-                resultBlock.appendChild(new TableTextGenerator(rows, Fields.fields).getTable());
-            }
+            resultBlock.appendChild(makeTable(rows));
             resultBlock.appendChild(getInfoBlock(rows));
-        } else {
-            var i = 0;
-            for (var _i = 0, _a = race.organizations; _i < _a.length; _i++) {
-                var org = _a[_i];
-                var rows = getStartListByOrg(org, store.sort);
-                if (!rows.length) {
-                    continue;
-                }
-                var titleBlock = document.createElement('h2');
-                titleBlock.id = org.name;
-                titleBlock.appendChild(document.createTextNode(dateFormat(race.data.start_datetime) + ' / ' + org.name + ' / ' + org.contact)); 
-                resultBlock.appendChild(titleBlock);
-                if (store.tableView) {
-                    resultBlock.appendChild(new TableGenerator(rows, Fields.fields).getTable({className: 'sportorg-table'}));
-                } else {
-                    resultBlock.appendChild(new TableTextGenerator(rows, Fields.fields).getTable());
-                }
-                resultBlock.appendChild(getInfoBlock(rows));
-                if (i < race.organizations.length - 1) {
-                    var newPage = document.createElement('div');
-                    newPage.className = 'new-page';
-                    resultBlock.appendChild(newPage);
-                }
-                i++;
-            }
+            return;
         }
+
+        var blocks = [];
+        race.organizations.forEach(function (org) {
+            var rows = getStartListByOrg(org, store.sort);
+            if (rows.length) {
+                blocks.push({
+                    org: org,
+                    rows: rows
+                });
+            }
+        });
+
+        if (!store.twoPerPage) {
+            blocks.forEach(function (block, index) {
+                resultBlock.appendChild(makeTeamBlock(block));
+                if (index < blocks.length - 1) {
+                    resultBlock.appendChild(makePageBreak());
+                }
+            });
+            return;
+        }
+
+        resultBlock.className = 'two-per-page';
+
+        var measurementContainer = document.createElement('div');
+        measurementContainer.className = 'team-measure-container two-per-page';
+        var halfPageMarker = document.createElement('div');
+        halfPageMarker.style.height = HALF_PAGE_HEIGHT;
+        measurementContainer.appendChild(halfPageMarker);
+        document.body.appendChild(measurementContainer);
+        var halfPageHeight = halfPageMarker.getBoundingClientRect().height;
+        var measuredBlocks = blocks.map(function (block) {
+            var element = makeTeamBlock(block);
+            measurementContainer.appendChild(element);
+            var height = element.getBoundingClientRect().height;
+            measurementContainer.removeChild(element);
+            return {element: element, height: height};
+        });
+        document.body.removeChild(measurementContainer);
+
+        var currentPage = null;
+        var currentSlot = 0;
+        measuredBlocks.forEach(function (block) {
+            if (block.height > halfPageHeight) {
+                currentPage = null;
+                currentSlot = 0;
+
+                var largePage = document.createElement('div');
+                largePage.className = 'team-page team-page-large';
+                if (store.largeTeamPosition === 'bottom') {
+                    largePage.className += ' team-page-large-bottom';
+                }
+                largePage.appendChild(block.element);
+                resultBlock.appendChild(largePage);
+                return;
+            }
+
+            if (!currentPage || currentSlot === 2) {
+                currentPage = document.createElement('div');
+                currentPage.className = 'team-page team-page-pair';
+                resultBlock.appendChild(currentPage);
+                currentSlot = 0;
+            }
+
+            var slot = document.createElement('div');
+            slot.className = 'team-slot';
+            slot.appendChild(block.element);
+            currentPage.appendChild(slot);
+            currentSlot++;
+        });
     }
     render();
     new SettingsGenerator([
@@ -244,6 +411,25 @@
             }
         },
         {
+            title: 'Две команды на листе (сверху и снизу)',
+            value: !!store.twoPerPage,
+            change: function (checked) {
+                store.twoPerPage = checked;
+                render()
+            }
+        },
+        {
+            title: 'Большие команды располагать:',
+            value: [
+                {text: 'сверху', value: 'top'},
+                {text: 'снизу', value: 'bottom'}
+            ],
+            change: function (arr) {
+                store.largeTeamPosition = arr[0];
+                render();
+            }
+        },
+        {
             title: 'Сортировать участников по: ',
             value: [
                 {text: 'имени', value: 'name'},
@@ -257,6 +443,5 @@
         }
     ]).show();
 </script>
-{% endraw %}
 {% endblock %}
 {% block footer %}{% endblock %}
